@@ -14,6 +14,7 @@ class _PlayersSetupScreenState extends State<PlayersSetupScreen> {
   final List<TextEditingController> _playerCtrls = [];
   int playerCount = 2;
   bool _hasActiveGame = false;
+  String? _activeGameWinner;
 
   @override
   void initState() {
@@ -31,36 +32,54 @@ class _PlayersSetupScreenState extends State<PlayersSetupScreen> {
 
   Future<void> _checkActiveGame() async {
     final box = Hive.box<Player>('players');
+    bool hasActive = false;
+    String? winner;
+    if (box.isNotEmpty) {
+      // جلب النقاط المستهدفة من مكان ثابت أو ثابت برمجي، أو من إعداداتك إذا متاح
+      int targetScore = 101;
+      for (var p in box.values) {
+        if (p.score >= targetScore) {
+          winner = p.name;
+          break;
+        }
+      }
+      hasActive = box.values.any((p) => p.score > 0) && winner == null;
+    }
     setState(() {
-      _hasActiveGame = box.isNotEmpty && box.values.any((p) => p.score > 0);
+      _hasActiveGame = hasActive;
+      _activeGameWinner = winner;
     });
   }
 
   Future<bool> _onWillPop() async {
-    return await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('تأكيد الخروج'),
-            content: const Text(
-                'هل أنت متأكد أنك تريد الخروج؟ سيتم فقدان البيانات الحالية.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('إلغاء'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('خروج'),
-              ),
-            ],
+    bool exit = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تأكيد الخروج'),
+        content: const Text('هل تريد الخروج من التطبيق؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('لا'),
           ),
-        ) ??
-        false;
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('نعم'),
+          ),
+        ],
+      ),
+    );
+    return exit == true;
   }
 
   Future<void> _continueGame() async {
     final box = Hive.box<Player>('players');
-    if (box.isEmpty || box.values.every((p) => p.score == 0)) {
+    // تحقق من حالة المباراة
+    int targetScore = 101;
+    bool hasWinner = box.values.any((p) => p.score >= targetScore);
+    bool validGame =
+        box.isNotEmpty && box.values.any((p) => p.score > 0) && !hasWinner;
+    if (!validGame) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('لا يوجد مباراة حالية')),
       );
@@ -93,23 +112,40 @@ class _PlayersSetupScreenState extends State<PlayersSetupScreen> {
       onWillPop: _onWillPop,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('إعداد اللاعبين'),
+          centerTitle: true,
+          title: const Text(
+            'إعداد اللاعبين',
+            style: TextStyle(
+              color: Colors.white,
+            ),
+          ),
         ),
         body: Padding(
           padding: const EdgeInsets.all(24.0),
           child: Column(
             children: [
+              ElevatedButton(
+                onPressed: _continueGame,
+                child: const Text('متابعة المباراة الجارية'),
+              ),
+              if (!_hasActiveGame)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    _activeGameWinner != null
+                        ? 'انتهت المباراة بفوز ${_activeGameWinner!}'
+                        : 'لا توجد مباراة حالية',
+                    style: const TextStyle(
+                        color: Colors.red, fontWeight: FontWeight.bold),
+                  ),
+                ),
               if (_hasActiveGame)
-                Column(
-                  children: [
-                    ElevatedButton(
-                      onPressed: _continueGame,
-                      child: const Text('استكمال المباراة الحالية'),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text('أو', style: TextStyle(fontSize: 18)),
-                    const SizedBox(height: 20),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                    'يمكنك متابعة المباراة الجارية أو بدء مباراة جديدة.',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
               Expanded(
                 child: SingleChildScrollView(

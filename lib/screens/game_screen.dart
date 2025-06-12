@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:domino_game/models/player.dart';
 import 'package:domino_game/models/game_result.dart';
-import 'package:domino_game/screens/players_setup_screen.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'players_setup_screen.dart';
+import 'results_screen.dart';
 
 class GameScreen extends StatefulWidget {
   const GameScreen({Key? key}) : super(key: key);
@@ -14,58 +15,85 @@ class GameScreen extends StatefulWidget {
 class _GameScreenState extends State<GameScreen> {
   late Box<Player> playerBox;
   late Box<GameResult> resultsBox;
-  final List<TextEditingController> _scoreCtrls = [];
+  List<TextEditingController> _scoreCtrls = [];
   final TextEditingController _targetScoreCtrl = TextEditingController();
   String winner = '';
   int targetScore = 101;
+  bool resultSaved = false;
 
   @override
   void initState() {
     super.initState();
     playerBox = Hive.box<Player>('players');
-    resultsBox = Hive.box<GameResult>('game_results');
+    resultsBox = Hive.box<GameResult>('results');
     _targetScoreCtrl.text = targetScore.toString();
 
-    for (int i = 0; i < 4; i++) {
-      _scoreCtrls.add(TextEditingController());
-    }
+    _initControllers();
+    _checkWinnerOnStart();
+  }
 
-    if (playerBox.isEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const PlayersSetupScreen()),
-        );
-      });
+  void _initControllers() {
+    final count = playerBox.length;
+    _scoreCtrls = List.generate(count, (_) => TextEditingController());
+  }
+
+  @override
+  void dispose() {
+    for (var c in _scoreCtrls) {
+      c.dispose();
+    }
+    _targetScoreCtrl.dispose();
+    super.dispose();
+  }
+
+  void _checkWinnerOnStart() {
+    if (playerBox.length >= 2) {
+      for (var i = 0; i < playerBox.length; i++) {
+        if (playerBox.getAt(i)!.score >= targetScore) {
+          winner = playerBox.getAt(i)!.name;
+          return;
+        }
+      }
+      winner = '';
     }
   }
 
   void _addScore(int index) {
-    if (winner.isNotEmpty) return;
+    if (_getWinnerName() != null) return;
     final score = int.tryParse(_scoreCtrls[index].text);
     if (score == null || score <= 0) return;
-
     final player = playerBox.getAt(index)!;
     player.score += score;
     player.save();
 
-    if (player.score >= targetScore) {
+    final currentWinner = _getWinnerName();
+    if (currentWinner != null) {
       setState(() {
-        winner = player.name;
+        winner = currentWinner;
       });
       _saveGameResult();
     }
-    _scoreCtrls[index].clear();
+    setState(() {
+      _scoreCtrls[index].clear();
+    });
   }
 
-  void _saveGameResult() {
-    final players = playerBox.values.toList();
-    final result = GameResult(
-      players: players,
-      winner: winner,
+  void _saveGameResult() async {
+    if (resultSaved || playerBox.length < 2) return;
+    final winnerName = _getWinnerName();
+    if (winnerName == null) return;
+    final winnerPlayer =
+        playerBox.values.firstWhere((p) => p.name == winnerName);
+
+    final newResult = GameResult(
+      players: playerBox.values.toList(),
+      winner: winnerPlayer.name,
       date: DateTime.now(),
     );
-    resultsBox.add(result);
+    await resultsBox.add(newResult);
+    setState(() {
+      resultSaved = true;
+    });
   }
 
   void _resetGame() async {
@@ -76,220 +104,228 @@ class _GameScreenState extends State<GameScreen> {
     }
     setState(() {
       winner = '';
+      resultSaved = false;
     });
   }
 
   void _changeNames() async {
     await playerBox.clear();
+    setState(() {
+      winner = '';
+      resultSaved = false;
+    });
+    Navigator.pushReplacement(
+        context, MaterialPageRoute(builder: (_) => const PlayersSetupScreen()));
+  }
+
+  String? _getWinnerName() {
+    for (var i = 0; i < playerBox.length; i++) {
+      if (playerBox.getAt(i)!.score >= targetScore) {
+        return playerBox.getAt(i)!.name;
+      }
+    }
+    return null;
+  }
+
+  void _navigateToGameScreen() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const GameScreen()),
+    );
+  }
+
+  void _navigateToResultsScreen() {
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => ResultsScreen()),
+    );
+  }
+
+  Future<bool> _onWillPop() async {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const PlayersSetupScreen()),
     );
-  }
-
-  void _updateTargetScore() {
-    final val = int.tryParse(_targetScoreCtrl.text);
-    if (val != null && val > 0) {
-      setState(() {
-        targetScore = val;
-      });
-    } else {
-      _targetScoreCtrl.text = targetScore.toString();
-    }
-  }
-
-  Widget _buildPlayerCard(int index, Player player) {
-    return Card(
-      margin: const EdgeInsets.all(8),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            Text(
-              player.name,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'النقاط: ${player.score}',
-              style: const TextStyle(fontSize: 18),
-            ),
-            if (winner.isEmpty) ...[
-              const SizedBox(height: 18),
-              TextField(
-                controller: _scoreCtrls[index],
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: "أضف نقاط",
-                  isDense: true,
-                  border: const OutlineInputBorder(),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 8,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              ElevatedButton(
-                onPressed: () => _addScore(index),
-                child: const Text("إضافة"),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 📱 وظيفة التعامل مع زر العودة
-  Future<bool> _onWillPop(BuildContext context) async {
-    if (Navigator.of(context).canPop()) {
-      return true; // يسمح بالرجوع إذا كان هناك شاشة سابقة
-    }
-    return await showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('تأكيد الخروج'),
-            content: const Text('هل تريد الخروج إلى شاشة اختيار اللاعبين؟'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('إلغاء'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('تأكيد'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-      onWillPop: () => _onWillPop(context),
-      child: ValueListenableBuilder<Box<Player>>(
-        valueListenable: playerBox.listenable(),
-        builder: (context, box, _) {
-          final playerCount = box.length;
-          if (playerCount == 0) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          return Scaffold(
-            body: Padding(
-              padding: const EdgeInsets.all(16.0),
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text(
+            'صفحة اللعبة',
+            style: TextStyle(
+              color: Colors.white,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _navigateToGameScreen,
+              child: const Text(
+                "اللعبة",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+            TextButton(
+              onPressed: _navigateToResultsScreen,
+              child: const Text(
+                "النتائج",
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+        body: ValueListenableBuilder(
+          valueListenable: playerBox.listenable(),
+          builder: (context, Box<Player> box, _) {
+            if (box.isEmpty) {
+              return const Center(child: Text('لا يوجد لاعبين!'));
+            }
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
+                  if (winner.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.emoji_events, color: Colors.orange),
+                          const SizedBox(width: 8),
+                          Text(
+                            'الفائز: $winner',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 16),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      const Text("نقطة", style: TextStyle(fontSize: 16)),
+                      const Text(
+                        'النقاط المستهدفة:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(width: 12),
                       SizedBox(
-                        width: 80,
+                        width: 60,
                         child: TextField(
-                          textAlign: TextAlign.center,
                           controller: _targetScoreCtrl,
                           keyboardType: TextInputType.number,
-                          onSubmitted: (_) => _updateTargetScore(),
                           enabled: winner.isEmpty,
+                          onChanged: (val) {
+                            final parsed = int.tryParse(val);
+                            if (parsed != null && parsed > 0) {
+                              setState(() {
+                                targetScore = parsed;
+                                _checkWinnerOnStart();
+                              });
+                            }
+                          },
                           decoration: const InputDecoration(
                             isDense: true,
-                            contentPadding: EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 8,
-                            ),
+                            contentPadding: EdgeInsets.symmetric(vertical: 6),
                           ),
-                        ),
-                      ),
-                      const Text(
-                        "النتيجة النهائية : ",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  Expanded(
-                    child: playerCount <= 2
-                        ? Row(
-                            children: [
-                              for (int i = 0; i < playerCount; i++)
-                                Expanded(
-                                  child: _buildPlayerCard(i, box.getAt(i)!),
-                                ),
-                            ],
-                          )
-                        : Column(
-                            children: [
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    for (int i = 0; i < 2; i++)
-                                      Expanded(
-                                        child:
-                                            _buildPlayerCard(i, box.getAt(i)!),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              Expanded(
-                                child: Row(
-                                  children: [
-                                    for (int i = 2; i < playerCount; i++)
-                                      Expanded(
-                                        child:
-                                            _buildPlayerCard(i, box.getAt(i)!),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: box.length,
+                    itemBuilder: (ctx, idx) {
+                      final player = box.getAt(idx)!;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 8),
+                        child: ListTile(
+                          title: Text(
+                            player.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
+                          subtitle: Text('النقاط الحالية: ${player.score}'),
+                          trailing: winner.isEmpty
+                              ? SizedBox(
+                                  width: 100,
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _scoreCtrls[idx],
+                                          keyboardType: TextInputType.number,
+                                          decoration: const InputDecoration(
+                                            labelText: 'إضافة نقاط',
+                                            isDense: true,
+                                          ),
+                                        ),
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.add),
+                                        color: Colors.blue,
+                                        onPressed: () => _addScore(idx),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : null,
+                        ),
+                      );
+                    },
                   ),
-                  if (winner.isNotEmpty) ...[
-                    Text(
-                      'مبروك $winner 🎉',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        color: Colors.green,
-                        fontWeight: FontWeight.bold,
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue,
+                        ),
+                        onPressed: _resetGame,
+                        icon: const Icon(
+                          Icons.refresh,
+                          color: Colors.white,
+                        ),
+                        label: const Text(
+                          'إعادة تعيين النقاط',
+                          style: TextStyle(
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: _resetGame,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text("إعادة اللعبة"),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
                         ),
-                        const SizedBox(width: 10),
-                        ElevatedButton.icon(
-                          onPressed: _changeNames,
-                          icon: const Icon(Icons.edit),
-                          label: const Text("تغيير الأسماء"),
+                        onPressed: _changeNames,
+                        icon: const Icon(
+                          Icons.edit,
+                          color: Colors.white,
                         ),
-                      ],
-                    ),
-                  ],
-                  if (winner.isEmpty)
-                    ElevatedButton.icon(
-                      onPressed: _resetGame,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text("إعادة اللعبة"),
-                    ),
+                        label: const Text(
+                          'تغيير الأسماء',
+                          style: TextStyle(
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
