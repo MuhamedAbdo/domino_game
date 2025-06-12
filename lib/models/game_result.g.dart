@@ -1,35 +1,38 @@
 // GENERATED CODE - DO NOT MODIFY BY HAND
 
-part of 'player.dart';
+part of 'game_result.dart';
 
 // **************************************************************************
 // TypeAdapterGenerator
 // **************************************************************************
 
-class PlayerAdapter extends TypeAdapter<Player> {
+class GameResultAdapter extends TypeAdapter<GameResult> {
   @override
-  final int typeId = 0;
+  final int typeId = 1;
 
   @override
-  Player read(BinaryReader reader) {
+  GameResult read(BinaryReader reader) {
     final numOfFields = reader.readByte();
     final fields = <int, dynamic>{
       for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
     };
-    return Player(
-      name: fields[0] as String,
-      score: fields[1] as int,
+    return GameResult(
+      players: (fields[0] as List).cast<Player>(),
+      winner: fields[1] as String,
+      date: fields[2] as DateTime,
     );
   }
 
   @override
-  void write(BinaryWriter writer, Player obj) {
+  void write(BinaryWriter writer, GameResult obj) {
     writer
-      ..writeByte(2)
+      ..writeByte(3)
       ..writeByte(0)
-      ..write(obj.name)
+      ..write(obj.players)
       ..writeByte(1)
-      ..write(obj.score);
+      ..write(obj.winner)
+      ..writeByte(2)
+      ..write(obj.date);
   }
 
   @override
@@ -38,7 +41,7 @@ class PlayerAdapter extends TypeAdapter<Player> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PlayerAdapter &&
+      other is GameResultAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }
